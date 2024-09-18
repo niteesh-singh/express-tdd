@@ -80,55 +80,36 @@ describe("User registration", () => {
     });
 
     const body = response.body;
+    console.log("body>>", body);
     expect(Object.keys(body.validationErrors)).toEqual(["username", "email"]);
   });
 
-  it.each([
-    ["username", "Username cannot be null"],
-    ["email", "E-Mail cannot be null"],
-    ["password", "Password cannot be null"],
-  ])("when %s field is null %s is received", async (field, expectedMessage) => {
-    const user = {
-      username: "user1",
-      email: "user1@mail.com",
-      password: "password1",
-    };
-    user[field] = null;
-    const response = await postUser(user);
-    const body = response.body;
-    expect(body.validationErrors[field]).toBe(expectedMessage);
-  });
-
-  // it("returns Username cannot be null when username is null", async () => {
-  //   const response = await postUser({
-  //     username: null,
-  //     email: "user1@mail.com",
-  //     password: "password1",
-  //   });
-
-  //   const body = response.body;
-  //   expect(body.validationErrors.username).toBe("Username cannot be null");
-  // });
-
-  // it("returns E-Mail cannot be null when email is null", async () => {
-  //   const response = await postUser({
-  //     username: "user1",
-  //     email: null,
-  //     password: "password1",
-  //   });
-
-  //   const body = response.body;
-  //   expect(body.validationErrors.email).toBe("E-Mail cannot be null");
-  // });
-
-  // it("returns Password cannot be null when password is null", async () => {
-  //   const response = await postUser({
-  //     username: "user1",
-  //     email: "user1@mail.com",
-  //     password: null,
-  //   });
-
-  //   const body = response.body;
-  //   expect(body.validationErrors.password).toBe("Password cannot be null");
-  // });
+  it.each`
+    field         | value              | expectedMessage
+    ${"username"} | ${null}            | ${"Username cannot be null"}
+    ${"username"} | ${"usr"}           | ${"Must have min 4 and max 32 characters"}
+    ${"username"} | ${"a".repeat(33)}  | ${"Must have min 4 and max 32 characters"}
+    ${"email"}    | ${null}            | ${"E-Mail cannot be null"}
+    ${"email"}    | ${"mail.com"}      | ${"E-Mail is not valid"}
+    ${"email"}    | ${"user.mail.com"} | ${"E-Mail is not valid"}
+    ${"email"}    | ${"user@mail"}     | ${"E-Mail is not valid"}
+    ${"password"} | ${null}            | ${"Password cannot be null"}
+    ${"password"} | ${"passw"}         | ${"Password must be at least 6 characters"}
+    ${"password"} | ${"alllowercase"}  | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
+    ${"password"} | ${"ALLUPPERCASE"}  | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
+    ${"password"} | ${"1234567890"}    | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
+  `(
+    "returns $expectedMessage when $field is ${value}",
+    async ({ field, expectedMessage, value }) => {
+      const user = {
+        username: "user1",
+        email: "user1@mail.com",
+        password: "password1",
+      };
+      user[field] = value;
+      const response = await postUser(user);
+      const body = response.body;
+      expect(body.validationErrors[field]).toBe(expectedMessage);
+    }
+  );
 });

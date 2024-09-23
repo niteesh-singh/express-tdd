@@ -2,6 +2,7 @@ const request = require("supertest");
 const app = require("../src/app");
 const User = require("../src/user/User");
 const sequelize = require("../src/config/database");
+const nodemailerStub = require("nodemailer-stub");
 
 beforeAll(() => {
   return sequelize.sync();
@@ -17,8 +18,12 @@ const validUser = {
   password: "password1",
 };
 
-const postUser = (user = validUser) => {
-  return request(app).post("/api/1.0/users").send(user);
+const postUser = (user = validUser, options = {}) => {
+  const agent = request(app).post("/api/1.0/users");
+  if (options.language) {
+    agent.set("Accept-Language", options.language);
+  }
+  return agent.send(user);
 };
 
 describe("User registration", () => {
@@ -80,24 +85,31 @@ describe("User registration", () => {
     });
 
     const body = response.body;
-    console.log("body>>", body);
     expect(Object.keys(body.validationErrors)).toEqual(["username", "email"]);
   });
 
+  const username_null = "Username cannot be null";
+  const username_size = "Must have min 4 and max 32 characters";
+  const email_null = "E-Mail cannot be null";
+  const email_not_valid = "E-Mail is not valid";
+  const password_null = "Password cannot be null";
+  const password_size = "Password must be at least 6 characters";
+  const password_pattern =
+    "Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number";
   it.each`
     field         | value              | expectedMessage
-    ${"username"} | ${null}            | ${"Username cannot be null"}
-    ${"username"} | ${"usr"}           | ${"Must have min 4 and max 32 characters"}
-    ${"username"} | ${"a".repeat(33)}  | ${"Must have min 4 and max 32 characters"}
-    ${"email"}    | ${null}            | ${"E-Mail cannot be null"}
-    ${"email"}    | ${"mail.com"}      | ${"E-Mail is not valid"}
-    ${"email"}    | ${"user.mail.com"} | ${"E-Mail is not valid"}
-    ${"email"}    | ${"user@mail"}     | ${"E-Mail is not valid"}
-    ${"password"} | ${null}            | ${"Password cannot be null"}
-    ${"password"} | ${"passw"}         | ${"Password must be at least 6 characters"}
-    ${"password"} | ${"alllowercase"}  | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
-    ${"password"} | ${"ALLUPPERCASE"}  | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
-    ${"password"} | ${"1234567890"}    | ${"Password must have at least 1 uppercase letter, 1 lowercase letter, and 1 number"}
+    ${"username"} | ${null}            | ${username_null}
+    ${"username"} | ${"usr"}           | ${username_size}
+    ${"username"} | ${"a".repeat(33)}  | ${username_size}
+    ${"email"}    | ${null}            | ${email_null}
+    ${"email"}    | ${"mail.com"}      | ${email_not_valid}
+    ${"email"}    | ${"user.mail.com"} | ${email_not_valid}
+    ${"email"}    | ${"user@mail"}     | ${email_not_valid}
+    ${"password"} | ${null}            | ${password_null}
+    ${"password"} | ${"passw"}         | ${password_size}
+    ${"password"} | ${"alllowercase"}  | ${password_pattern}
+    ${"password"} | ${"ALLUPPERCASE"}  | ${password_pattern}
+    ${"password"} | ${"1234567890"}    | ${password_pattern}
   `(
     "returns $expectedMessage when $field is ${value}",
     async ({ field, expectedMessage, value }) => {
@@ -112,4 +124,97 @@ describe("User registration", () => {
       expect(body.validationErrors[field]).toBe(expectedMessage);
     }
   );
+
+  it("returns E-Mai in use when same email is aleady in use", async () => {
+    await User.create({ ...validUser });
+    const response = await postUser();
+    expect(response.body.validationErrors.email).toBe("E-Mail in use");
+  });
+
+  it("returns errors for both username is null and email is in use", async () => {
+    await User.create({ ...validUser });
+    const response = await postUser({
+      username: null,
+      email: validUser.email,
+      password: "password1",
+    });
+    const body = response.body;
+    expect(Object.keys(body.validationErrors)).toEqual(["username", "email"]);
+  });
+
+  it("creates user in inactive mode", async () => {
+    await postUser();
+    const users = await User.findAll();
+    const savedUser = users[0];
+    expect(savedUser.inactive).toBe(true);
+  });
+
+  it("creates user in inactive mode even the req body contains inactive as false", async () => {
+    const newUser = { ...validUser, inactive: false };
+    await postUser(newUser);
+    const users = await User.findAll();
+    const savedUser = users[0];
+    expect(savedUser.inactive).toBe(true);
+  });
+
+  it("creates an activation token for user", async () => {
+    await postUser();
+    const users = await User.findAll();
+    const savedUser = users[0];
+    expect(savedUser.activationToken).toBeTruthy();
+  });
+
+  it("send and Account Activation email with activationToken", async () => {
+    await postUser();
+    const lastmail = nodemailerStub.interactsWithMail.lastMail();
+    expect(lastmail.to[0]).toBe("user1@mail.com");
+    const users = await User.findAll();
+    const savedUser = users[0];
+    expect(lastmail.content).toContain(savedUser.activationToken);
+  });
+});
+
+describe("Internationalization", () => {
+  const username_null = "उपयोगकर्ता नाम शून्य नहीं हो सकता";
+  const username_size = "न्यूनतम 4 और अधिकतम 32 अक्षर होने चाहिए";
+  const email_null = "ई-मेल शून्य नहीं हो सकता";
+  const email_not_valid = "विद्युतडाक मान्य नहीं है";
+  const password_null = "पासवर्ड शून्य नहीं हो सकता";
+  const password_size = "पासवर्ड कम से कम 6 अंकों का होना चाहिए";
+  const password_pattern =
+    "पासवर्ड में कम से कम 1 बड़ा अक्षर, 1 छोटा अक्षर और 1 संख्या होनी चाहिए";
+  it.each`
+    field         | value              | expectedMessage
+    ${"username"} | ${null}            | ${username_null}
+    ${"username"} | ${"usr"}           | ${username_size}
+    ${"username"} | ${"a".repeat(33)}  | ${username_size}
+    ${"email"}    | ${null}            | ${email_null}
+    ${"email"}    | ${"mail.com"}      | ${email_not_valid}
+    ${"email"}    | ${"user.mail.com"} | ${email_not_valid}
+    ${"email"}    | ${"user@mail"}     | ${email_not_valid}
+    ${"password"} | ${null}            | ${password_null}
+    ${"password"} | ${"passw"}         | ${password_size}
+    ${"password"} | ${"alllowercase"}  | ${password_pattern}
+    ${"password"} | ${"ALLUPPERCASE"}  | ${password_pattern}
+    ${"password"} | ${"1234567890"}    | ${password_pattern}
+  `(
+    "returns $expectedMessage when $field is ${value} and when language is set to Hindi",
+    async ({ field, expectedMessage, value }) => {
+      const user = {
+        username: "user1",
+        email: "user1@mail.com",
+        password: "password1",
+      };
+      user[field] = value;
+      const response = await postUser(user, { language: "hi" });
+      const body = response.body;
+      expect(body.validationErrors[field]).toBe(expectedMessage);
+    }
+  );
+
+  it("returns E-Mai in use when same email is aleady in use", async () => {
+    await User.create({ ...validUser });
+    const response = await postUser({ ...validUser }, { language: "hi" });
+    expect(response.body.validationErrors.email).toBe("E-Mail in use");
+  });
 });

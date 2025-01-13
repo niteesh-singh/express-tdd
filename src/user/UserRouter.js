@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const User = require("./User");
 const { check, validationResult } = require("express-validator");
 const UserService = require("./UserService");
 
@@ -43,8 +42,12 @@ router.post(
         .forEach((error) => (validationErrors[error.path] = req.t(error.msg)));
       return res.status(400).send({ validationErrors });
     }
-    await UserService.save(req.body);
-    return res.send({ message: "User created" });
+    try {
+      await UserService.save(req.body);
+      return res.send({ message: "User created" });
+    } catch (err) {
+      res.status(502).send({ message: "E-Mail failure" });
+    }
   }
 );
 
